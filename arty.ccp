@@ -1,116 +1,186 @@
-// define pins
-const int S0 = 2;
-const int S1 = 3;
-const int S2 = 4;
-const int S3 = 5;
-const int signal = 6;
-// note - sensor LED pin is hardwired to 5V. You can use
-// an I/O pin to turn the white LEDs on and off instead, but a single
-// I/O pin cannot provide enough current for all four LEDs at full brightness.
+#define BUTTON_PIN 7       // Original button
+#define RESET_BUTTON_PIN 8 // Reset button
+#define RED_PIN 9          // RGB Red (player LED)
+#define BLUE_PIN 10        // RGB Blue (player LED)
+#define GREEN_PIN 11       // RGB Green (player LED)
 
-// LED pins
-const int redLED = 10;
-const int greenLED = 9;
-const int blueLED = 8;
+int input;
+int buttonState = LOW;
+int lastButtonState = LOW;
+int resetButtonState = LOW;
+int lastResetButtonState = LOW;
 
-// define variables for pulses
-unsigned long red;
-unsigned long blue;
-unsigned long green;
-unsigned long clear;
+bool rgbState = false;
+int activeRGB = 0;
 
-void setup() { // this code runs once
-  // set pin modes
-  pinMode(S0,OUTPUT);
-  pinMode(S1,OUTPUT);
-  pinMode(S2,OUTPUT);
-  pinMode(S3,OUTPUT);
-  pinMode(signal,INPUT);
-  pinMode(redLED,OUTPUT);
-  pinMode(greenLED,OUTPUT);
-  pinMode(blueLED,OUTPUT);
+int targetColorIndex = 0;
 
-  /* set frequency scaling - 
-     S0 S1 = Output frequency scaling
-     L L  = power down
-     L H  = 2%
-     H L  = 20%
-     H H  = 100%
-  */
-  digitalWrite(S0,HIGH);
-  digitalWrite(S1,LOW);
+enum ActiveLED { BLUE_LED, YELLOW_LED, RED_LED, WHITE_LED } currentLED;
 
-  // initialize serial communication
+// Define Color struct
+struct Color {
+  int r, g, b;
+};
+
+// All colors from your list mapped by activeRGB index
+Color colors[17] = {
+  {0, 0, 0},          // 0: off / no color
+  {255, 0, 0},        // 1: Red
+  {255, 255, 0},      // 2: Yellow
+  {0, 0, 255},        // 3: Blue
+  {255, 255, 255},    // 4: White
+  {255, 165, 0},      // 5: Orange
+  {138, 43, 226},     // 6: Purple
+  {0, 255, 0},        // 7: Green
+  {255, 192, 203},    // 8: Pink
+  {255, 254, 224},    // 9: Light Yellow
+  {173, 216, 230},    // 10: Light Blue
+  {33, 10, 121},      // 11: Violet Blue
+  {144, 238, 144},    // 12: Light Green
+  {0, 255, 255},      // 13: Cyan
+  {255, 0, 255},      // 14: Magenta
+  {195, 73, 70},      // 15: Blood Orange
+  {139, 69, 19}       // 16: Brown
+};
+
+void setup() {
   Serial.begin(9600);
+
+  pinMode(2, OUTPUT);  // Red Indicator
+  pinMode(3, OUTPUT);  // Yellow Indicator
+  pinMode(4, OUTPUT);  // Blue Indicator
+  pinMode(5, OUTPUT);  // White Indicator
+
+  pinMode(RED_PIN, OUTPUT);
+  pinMode(GREEN_PIN, OUTPUT);
+  pinMode(BLUE_PIN, OUTPUT);
+
+  pinMode(BUTTON_PIN, INPUT);
+  pinMode(RESET_BUTTON_PIN, INPUT); // Set reset button as input
+
+  digitalWrite(2, LOW);
+  digitalWrite(3, LOW);
+  digitalWrite(4, LOW);
+  digitalWrite(5, LOW);
+  
+  
+  randomSeed(analogRead(A1));
+  resetRGB();
 }
 
-void loop() { // put your main code here, to run repeatedly:
-  /* cycle through each filter type and use the pulseIn command to measure pulse length.
-  Frequency *increases* with more light, so the pulse length will *decrease*.
-  /  S2 S3 | Photodiode Type
-     L  L  | Red
-     L  H  | Blue
-     H  L  | Clear (no filter)
-     H  H  | Green
-  */
-  
-  // clear
-  digitalWrite(S2,HIGH);
-  digitalWrite(S3,LOW);
-  clear = pulseIn(signal,HIGH);
-  
-  // red
-  digitalWrite(S2,LOW);
-  digitalWrite(S3,LOW);
-  red = pulseIn(signal,HIGH);
+void loop() {
+  //--- ANALOG INPUT LED CONTROL ---
+  input = analogRead(A0);
 
-  // green
-  digitalWrite(S2,HIGH);
-  digitalWrite(S3,HIGH);
-  green = pulseIn(signal,HIGH);
-
-  // blue
-  digitalWrite(S2,LOW);
-  digitalWrite(S3,HIGH);
-  blue = pulseIn(signal,HIGH);
-
-  /* map the red, green, and blue values to a more intuitive 0-255 range where
-     0 means less light and 255 means more. This will change where lighting is different.
-  */
-  red = map(red,80,30,0,255);
-  green = map(green,80,30,0,255);
-  blue = map(blue,80,30,0,255);
-  
-  // turn LEDs on depending on which color is detected
-  if(red>200 && green<100 && blue<100){  // red detected
-    digitalWrite(redLED,HIGH);
-    digitalWrite(greenLED,LOW);
-    digitalWrite(blueLED,LOW);
-  }
-  else if(red<100 && green>150 && blue<150){  // green detected
-    digitalWrite(redLED,LOW);
-    digitalWrite(greenLED,HIGH);
-    digitalWrite(blueLED,LOW);
-  }
-  else if(red<100 && green<100 && blue>80){  // blue detected
-    digitalWrite(redLED,LOW);
-    digitalWrite(greenLED,LOW);
-    digitalWrite(blueLED,HIGH);
-  }
-  else{  // none of the three colors above detected
-    //digitalWrite(redLED,LOW);
-    //digitalWrite(greenLED,LOW);
-    //digitalWrite(blueLED,LOW);
+  if (input < 256) {
+    setIndicator(1, 0, 0, 0);   // Red
+    currentLED = RED_LED;
+  } else if (input < 512) {
+    setIndicator(0, 1, 0, 0);   // Yellow
+    currentLED = YELLOW_LED;
+  } else if (input < 768) {
+    setIndicator(0, 0, 1, 0);   // Blue
+    currentLED = BLUE_LED;
+  } else {
+    setIndicator(0, 0, 0, 1);   // White
+    currentLED = WHITE_LED;
   }
 
-  // print readings
-  
-  Serial.print("Red: ");
-  Serial.print(red);
-  Serial.print(" | Green: ");
-  Serial.print(green);
-  Serial.print(" | Blue: ");
-  Serial.println(blue);
-  
+  //--- BUTTON PRESS HANDLING ---
+  buttonState = digitalRead(BUTTON_PIN);
+  if (buttonState == HIGH && lastButtonState == LOW) {
+    handleButtonPress();
+    delay(50);  // Simple debounce
+  }
+
+  //--- RESET BUTTON HANDLING ---
+  resetButtonState = digitalRead(RESET_BUTTON_PIN);
+  if (resetButtonState == HIGH && lastResetButtonState == LOW) {
+    resetRGB();
+    delay(50);  // Simple debounce
+  }
+
+  lastButtonState = buttonState;
+  lastResetButtonState = resetButtonState;
 
 }
+
+// Set indicator LEDs
+void setIndicator(bool red, bool yellow, bool green, bool white) {
+  digitalWrite(2, red ? HIGH : LOW);
+  digitalWrite(3, yellow ? HIGH : LOW);
+  digitalWrite(4, green ? HIGH : LOW);
+  digitalWrite(5, white ? HIGH : LOW);
+}
+
+// Handle the button press based on the current LED state
+void handleButtonPress() {
+  if (activeRGB >= 8) return; // If RGB is locked, do nothing
+
+  switch (currentLED) {
+    case RED_LED:
+      if (activeRGB == 2) activeRGB = 5;
+      else if (activeRGB == 3) activeRGB = 6;
+      else if (activeRGB == 4) activeRGB = 8;
+      else if (activeRGB == 5) activeRGB = 15;
+      else if (activeRGB == 7) activeRGB = 16;
+      else if (activeRGB == 0) activeRGB = 1;
+      break;
+
+    case YELLOW_LED:
+      if (activeRGB == 3) activeRGB = 7;
+      else if (activeRGB == 1) activeRGB = 5;
+      else if (activeRGB == 4) activeRGB = 9;
+      else if (activeRGB == 7) activeRGB = 12;
+      else if (activeRGB == 6) activeRGB = 16;
+      else if (activeRGB == 0) activeRGB = 2;
+      break;
+
+    case BLUE_LED:
+      if (activeRGB == 2) activeRGB = 7;
+      else if (activeRGB == 1) activeRGB = 6;
+      else if (activeRGB == 4) activeRGB = 10;
+      else if (activeRGB == 6) activeRGB = 11;
+      else if (activeRGB == 7) activeRGB = 13;
+      else if (activeRGB == 5) activeRGB = 16;
+      else if (activeRGB == 0) activeRGB = 3;
+      break;
+
+    case WHITE_LED:
+      if (activeRGB == 1) activeRGB = 8;
+      else if (activeRGB == 2) activeRGB = 9;
+      else if (activeRGB == 3) activeRGB = 10;
+      else if (activeRGB == 6) activeRGB = 14;
+      else if (activeRGB == 7) activeRGB = 12;
+      else if (activeRGB == 0) activeRGB = 4;
+      break;
+  }
+
+  Serial.print("Selected color index: ");
+  Serial.println(activeRGB);
+  Serial.print("RGB Values: R=");
+  Serial.print(colors[activeRGB].r);
+  Serial.print(" G=");
+  Serial.print(colors[activeRGB].g);
+  Serial.print(" B=");
+  Serial.println(colors[activeRGB].b);
+
+
+  setColor(colors[activeRGB].r, colors[activeRGB].g, colors[activeRGB].b);
+}
+
+// Reset the RGB LED (turn it off)
+void resetRGB() {
+  setColor(0, 0, 0);  // Turn off RGB LED
+  activeRGB = 0;      // Reset activeRGB state
+  rgbState = false;   // Reset RGB state
+  setIndicator(0, 0, 0, 0); // Turn off all indicator LEDs
+}
+
+// Set RGB color for player LED
+void setColor(int r, int g, int b) {
+  analogWrite(RED_PIN, r);
+  analogWrite(GREEN_PIN, g);
+  analogWrite(BLUE_PIN, b);
+}
+
